@@ -27,9 +27,18 @@ NVIDIA GPU (CUDA) болон Docker. COLMAP-ийн нягт (dense) сэргээ
 
 `colmap/colmap` образ дээр ONNX Runtime-ийн CUDA хэсэг байдаг ч түүний шаарддаг
 `libcudnn.so.9` дутуу. Тэр үед COLMAP нь CPU руу шилжихийн оронд `abort()` хийж,
-docker-ийг өлгөдөг. `Dockerfile.cudnn` тэр дутууг нөхнө. `recon.sh` нь
-`colmap-cudnn:latest` образыг байвал автоматаар сонгож ALIKED-ыг GPU дээр,
-байхгүй бол CPU дээр ажиллуулна (унахын оронд).
+docker-ийг өлгөдөг. `Dockerfile.cudnn` тэр дутууг нөхнө.
+
+> **cuDNN 9 нь compute capability 7.0 (Volta) ба түүнээс дээш GPU шаарддаг.**
+> GTX 10xx (Pascal, sm_61) зэрэг хуучин картан дээр сан нь ачаалагдана ч
+> конволюц ажиллахдаа `no kernel image is available for execution on the device`
+> гээд унана. `recon.sh` нь `nvidia-smi`-аас GPU-гийн үеийг уншиж, 7.0-аас
+> доош бол ALIKED-ыг автоматаар CPU дээр ажиллуулна. Өөрийн GPU-гээ шалгах:
+>
+>     nvidia-smi --query-gpu=name,compute_cap --format=csv
+
+`recon.sh` нь образ болон GPU-гийн үеийг хоёуланг нь шалгаж, ALIKED-ыг GPU
+эсвэл CPU дээр ажиллуулахаа өөрөө шийднэ.
 
 ## Онцлог ялгагчийн горим
 

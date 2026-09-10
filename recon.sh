@@ -92,7 +92,20 @@ case "$FEATURES" in
     # libcudnn9 байхгүй образ дээр ONNX-ийн CUDA хэсэг ачаалагдахгүй бөгөөд
     # COLMAP нь CPU руу шилжихийн оронд abort() хийж docker-ийг өлгөдөг.
     # Тиймээс cuDNN-гүй бол зориуд CPU-г сонгоно.
-    if [ "$HAS_CUDNN" = 1 ]; then AGPU=1; else AGPU=0; fi
+    # cuDNN 9 нь зөвхөн sm_70 (Volta) ба түүнээс дээш архитектурт зориулсан
+    # цөмүүдтэй. Pascal (sm_61) зэрэг хуучин GPU дээр сан нь ачаалагдана ч
+    # конволюц ажиллахдаа "no kernel image is available" гээд унаж, docker-ийг
+    # өлгөдөг. Тиймээс GPU-гийн үеийг шалгаж байж GPU-г асаана.
+    GPU_CAP="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d ' ')"
+    CAP_MAJOR="${GPU_CAP%%.*}"
+    if [ "$HAS_CUDNN" = 1 ] && [ "${CAP_MAJOR:-0}" -ge 7 ] 2>/dev/null; then
+      AGPU=1
+    else
+      AGPU=0
+      if [ "$HAS_CUDNN" = 1 ]; then
+        log "GPU compute capability ${GPU_CAP:-тодорхойгүй} < 7.0 — cuDNN 9 дэмжихгүй тул ALIKED CPU дээр"
+      fi
+    fi
     log "Горим: ALIKED_N32 + LightGlue ($([ "$AGPU" = 1 ] && echo GPU || echo CPU))"
     EXT_ARGS=( --$EXT.type ALIKED_N32
                --$EXT.use_gpu "$AGPU"
