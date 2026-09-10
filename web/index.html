@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photogrammetry — зургаас 3D</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+}}
+</script>
+<style>
+  :root{ --bg:#0e1116; --panel:#171b22; --line:#262d38; --fg:#e6ebf2; --dim:#8b97a8;
+         --acc:#4cc2ff; --ok:#38d39f; --err:#ff6b6b; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  #app{display:grid;grid-template-columns:360px 1fr;height:100%}
+  @media(max-width:820px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}}
+  aside{background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow:auto}
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
+  #drop{border:2px dashed var(--line);border-radius:10px;padding:22px 14px;text-align:center;
+    color:var(--dim);cursor:pointer;transition:.15s}
+  #drop.hot{border-color:var(--acc);color:var(--fg)}
+  #drop.hot{background:rgba(76,194,255,.08)}
+  #thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:5px;margin:12px 0}
+  #thumbs img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;border:1px solid var(--line)}
+  button{width:100%;padding:10px;border:0;border-radius:8px;background:var(--acc);color:#04121c;
+    font-weight:700;cursor:pointer;font-size:14px}
+  button:disabled{background:#2b333f;color:var(--dim);cursor:not-allowed}
+  .steps{margin:14px 0;font-size:12.5px}
+  .steps div{display:flex;gap:8px;align-items:center;padding:3px 0;color:var(--dim)}
+  .steps div.on{color:var(--fg)} .steps div.done{color:var(--ok)}
+  .dot{width:8px;height:8px;border-radius:50%;background:#2b333f;flex:none}
+  .on .dot{background:var(--acc)} .done .dot{background:var(--ok)}
+  pre{background:#0b0e13;border:1px solid var(--line);border-radius:8px;padding:9px;
+    font-size:11px;max-height:210px;overflow:auto;white-space:pre-wrap;color:var(--dim)}
+  #view{position:relative}
+  #view canvas{display:block}
+  #hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--dim);text-align:center;padding:30px;pointer-events:none}
+  #bar{position:absolute;top:10px;left:10px;display:flex;gap:6px;flex-wrap:wrap}
+  #bar a,#bar span{background:rgba(0,0,0,.6);border:1px solid var(--line);border-radius:7px;
+    padding:5px 9px;font-size:12px;color:var(--fg);text-decoration:none;cursor:pointer}
+  .warn{background:#2a1f10;border:1px solid #5a4620;color:#ffce7a;padding:9px;border-radius:8px;
+    font-size:12px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <h1>Зургаас 3D загвар</h1>
+    <div class="sub">COLMAP · Structure-from-Motion + нягт стерео</div>
+
+    <div class="warn" id="tip">
+      Объектоо <b>тойрч</b> 20–60 зураг ав. Зэргэлдээ хоёр зураг <b>60–80% давхцсан</b> байх ёстой.
+      Объект хөдлөхгүй, гэрэл тогтмол, фокус тод байх нь чухал.
+    </div>
+
+    <div id="drop">Зургуудаа энд чирж оруул<br><span style="font-size:12px">эсвэл дарж сонго</span></div>
+    <input type="file" id="pick" accept="image/*" multiple hidden>
+    <div id="thumbs"></div>
+
+    <label style="display:block;margin:10px 0 6px;font-size:12.5px;color:var(--dim)">
+      Онцлог ялгагч
+      <select id="feat" style="width:100%;margin-top:4px;padding:8px;border-radius:7px;
+        background:#0b0e13;color:var(--fg);border:1px solid var(--line);font-size:13px">
+        <option value="sift">SIFT — стандарт, хурдан</option>
+        <option value="sift-hard">SIFT мэдрэг — олон цэг, удаан</option>
+        <option value="aliked">ALIKED + LightGlue — бараан/гөлгөр объектод</option>
+      </select>
+    </label>
+
+    <button id="go" disabled>Сэргээлт эхлүүлэх</button>
+
+    <div class="steps" id="steps"></div>
+    <pre id="log">—</pre>
+  </aside>
+
+  <div id="view">
+    <div id="bar"></div>
+    <div id="hint">Үр дүн энд гарна.<br>Хулганаар эргүүлж, дугуйгаар томруулна.</div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { PLYLoader }      from 'three/addons/loaders/PLYLoader.js';
+import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
+
+const $ = s => document.querySelector(s);
+const STAGES = ['Онцлог цэг ялгах','Зураг тааруулах','Камерын байрлал (SfM)',
+                'Гажилт арилгах','Нягт гүний зураглал','Цэгэн үүл нэгтгэх',
+                'Гадаргуу барих','Дууслаа'];
+let jobId = null, files = [], poll = null;
+
+/* ---------- зураг сонгох ---------- */
+const drop = $('#drop'), pick = $('#pick');
+drop.onclick = () => pick.click();
+pick.onchange = () => addFiles([...pick.files]);
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.add('hot'); }));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.remove('hot'); }));
+drop.addEventListener('drop', ev => addFiles([...ev.dataTransfer.files].filter(f => f.type.startsWith('image/'))));
+
+function addFiles(list){
+  files = files.concat(list);
+  const t = $('#thumbs'); t.innerHTML = '';
+  files.slice(0, 60).forEach(f => {
+    const im = document.createElement('img');
+    im.src = URL.createObjectURL(f); im.onload = () => URL.revokeObjectURL(im.src);
+    t.appendChild(im);
+  });
+  $('#go').disabled = files.length < 8;
+  $('#go').textContent = files.length < 8
+    ? `Дор хаяж 8 зураг хэрэгтэй (${files.length})`
+    : `${files.length} зургаар сэргээлт эхлүүлэх`;
+}
+
+/* ---------- ажиллуулах ---------- */
+$('#go').onclick = async () => {
+  $('#go').disabled = true;
+  $('#go').textContent = 'Зураг илгээж байна…';
+  const r = await fetch('/api/job', { method:'POST' });
+  jobId = (await r.json()).id;
+
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    await fetch(`/api/job/${jobId}/img/${encodeURIComponent(f.name)}`,
+                { method:'PUT', body:f });
+    $('#go').textContent = `Илгээж байна… ${i + 1}/${files.length}`;
+  }
+  const feat = document.getElementById('feat').value;
+  await fetch(`/api/job/${jobId}/run?features=${feat}`, { method:'POST' });
+  $('#go').textContent = 'Сэргээж байна…';
+  poll = setInterval(tick, 1500); tick();
+};
+
+function renderSteps(cur, done, failed){
+  $('#steps').innerHTML = STAGES.map((s, i) => {
+    const n = i + 1;
+    const cls = failed && n === cur ? '' : (n < cur || done) ? 'done' : n === cur ? 'on' : '';
+    return `<div class="${cls}"><span class="dot"></span>${s}</div>`;
+  }).join('');
+}
+
+async function tick(){
+  const st = await (await fetch(`/api/job/${jobId}/status`)).json();
+  $('#log').textContent = st.log || '—';
+  $('#log').scrollTop = 1e9;
+  const finished = !st.running && st.exit !== null;
+  renderSteps(st.stage, finished && st.exit === 0, finished && st.exit !== 0);
+
+  if (finished) {
+    clearInterval(poll);
+    if (st.exit === 0) {
+      $('#go').textContent = 'Дууслаа ✓'; showBar(st.outputs);
+      // хэт жижиг тор = бүтэлгүйтсэн Poisson → цэгэн үүлийг үзүүлнэ
+      const m = st.outputs['dense/mesh.ply'] || 0;
+      const best = m > 100000 ? 'dense/mesh.ply' : 'dense/fused.ply';
+      if (st.outputs[best]) load(best);
+      if (m && m <= 100000) $('#hint').textContent = '';
+    } else {
+      $('#go').textContent = 'Алдаатай дууслаа — лог харна уу';
+      $('#go').disabled = false;
+    }
+  }
+}
+
+function showBar(outs){
+  $('#bar').innerHTML = Object.entries(outs).map(([k, sz]) =>
+    `<span data-f="${k}">${k.split('/')[1]} · ${(sz/1e6).toFixed(1)} MB</span>`).join('') +
+    Object.keys(outs).map(k =>
+    `<a href="/api/job/${jobId}/file/${k}" download>${k.split('/')[1]} татах</a>`).join('');
+  $('#bar').querySelectorAll('span[data-f]').forEach(el =>
+    el.onclick = () => load(el.dataset.f));
+}
+
+/* ---------- 3D харагч ---------- */
+const view = $('#view');
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0e1116);
+const cam = new THREE.PerspectiveCamera(50, 1, .01, 5000);
+cam.position.set(0, 0, 3);
+const ctrl = new OrbitControls(cam, renderer.domElement);
+ctrl.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x223044, 2.0));
+const dir = new THREE.DirectionalLight(0xffffff, 1.4); dir.position.set(1, 2, 2); scene.add(dir);
+let current = null;
+
+function resize(){
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view); resize();
+(function anim(){ requestAnimationFrame(anim); ctrl.update(); renderer.render(scene, cam); })();
+
+function load(name){
+  $('#hint').textContent = 'Ачаалж байна…';
+  new PLYLoader().load(`/api/job/${jobId}/file/${name}`, geo => {
+    if (current) { scene.remove(current); current.geometry.dispose(); }
+    geo.computeBoundingBox();
+    const c = geo.boundingBox.getCenter(new THREE.Vector3());
+    geo.translate(-c.x, -c.y, -c.z);
+    const r = geo.boundingBox.getSize(new THREE.Vector3()).length() / 2 || 1;
+
+    const hasFaces = !!geo.index;
+    if (hasFaces) {
+      geo.computeVertexNormals();
+      current = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        vertexColors: !!geo.attributes.color, color: geo.attributes.color ? 0xffffff : 0xb9c6d4,
+        roughness:.85, metalness:.0, side: THREE.DoubleSide }));
+    } else {
+      current = new THREE.Points(geo, new THREE.PointsMaterial({
+        size: r * .004, vertexColors: !!geo.attributes.color,
+        color: geo.attributes.color ? 0xffffff : 0x9fd8ff, sizeAttenuation:true }));
+    }
+    scene.add(current);
+    cam.position.set(0, 0, r * 2.6); ctrl.target.set(0, 0, 0); ctrl.update();
+    cam.near = r / 100; cam.far = r * 100; cam.updateProjectionMatrix();
+    $('#hint').style.display = 'none';
+  }, xhr => {
+    if (xhr.total) $('#hint').textContent = `Ачаалж байна… ${(xhr.loaded/xhr.total*100).toFixed(0)}%`;
+  }, err => { $('#hint').textContent = 'Ачаалж чадсангүй: ' + err; });
+}
+
+renderSteps(0, false, false);
+
+// ?job=<id> — өмнөх ажлыг шууд нээх
+const qjob = new URLSearchParams(location.search).get('job');
+if (qjob) {
+  jobId = qjob;
+  fetch(`/api/job/${jobId}/status`).then(r => r.json()).then(st => {
+    $('#log').textContent = st.log || '—';
+    renderSteps(st.stage, st.exit === 0, st.exit !== 0 && st.exit !== null);
+    showBar(st.outputs);
+    const m = st.outputs['dense/mesh.ply'] || 0;
+    const best = m > 100000 ? 'dense/mesh.ply' : 'dense/fused.ply';
+    if (st.outputs[best]) load(best);
+  });
+}
+</script>
+</body>
+</html>

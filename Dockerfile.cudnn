@@ -1,0 +1,8 @@
+# colmap/colmap образ дээр ONNX Runtime-ийн CUDA хэсэг байгаа боловч
+# түүний шаарддаг cuDNN 9 дутуу. Улмаас ALIKED/LightGlue GPU дээр
+# ачаалагдаж чадалгүй abort() хийж, docker-ийг өлгөдөг.
+# Энэ образ тэр дутууг нөхнө.
+FROM colmap/colmap:latest
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libcudnn9-cuda-12 \
+ && rm -rf /var/lib/apt/lists/*
