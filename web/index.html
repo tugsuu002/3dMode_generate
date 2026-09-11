@@ -93,7 +93,7 @@ import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
 const $ = s => document.querySelector(s);
 const STAGES = ['Онцлог цэг ялгах','Зураг тааруулах','Камерын байрлал (SfM)',
                 'Гажилт арилгах','Нягт гүний зураглал','Цэгэн үүл нэгтгэх',
-                'Гадаргуу барих','Дууслаа'];
+                'Дэвсгэр таслах','Гадаргуу барих','Дууслаа'];
 let jobId = null, files = [], poll = null;
 
 /* ---------- зураг сонгох ---------- */
@@ -171,10 +171,12 @@ async function tick(){
 }
 
 function showBar(outs){
+  const LBL = { 'fused.ply':'Бүтэн үүл', 'object.ply':'Зөвхөн объект', 'mesh.ply':'Тор' };
+  const nm = k => LBL[k.split('/')[1]] || k.split('/')[1];
   $('#bar').innerHTML = Object.entries(outs).map(([k, sz]) =>
-    `<span data-f="${k}">${k.split('/')[1]} · ${(sz/1e6).toFixed(1)} MB</span>`).join('') +
+    `<span data-f="${k}">${nm(k)} · ${(sz/1e6).toFixed(1)} MB</span>`).join('') +
     Object.keys(outs).map(k =>
-    `<a href="/api/job/${jobId}/file/${k}" download>${k.split('/')[1]} татах</a>`).join('');
+    `<a href="/api/job/${jobId}/file/${k}" download>⭳ ${nm(k)}</a>`).join('');
   $('#bar').querySelectorAll('span[data-f]').forEach(el =>
     el.onclick = () => load(el.dataset.f));
 }

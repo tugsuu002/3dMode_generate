@@ -52,7 +52,7 @@ def job_state(jid):
         rc = int(open(exitp).read().strip() or '1')
     imgs = os.path.join(d, 'images')
     outs = {}
-    for name in ('dense/fused.ply', 'dense/mesh.ply'):
+    for name in ('dense/fused.ply', 'dense/object.ply', 'dense/mesh.ply'):
         p = os.path.join(d, name)
         if os.path.exists(p): outs[name] = os.path.getsize(p)
     running = jid in _procs and _procs[jid].poll() is None
@@ -90,7 +90,7 @@ class H(http.server.BaseHTTPRequestHandler):
         if m:
             st = job_state(m.group(1))
             return self._json(200, st) if st else self._json(404, {'error':'олдсонгүй'})
-        m = re.fullmatch(r'/api/job/([a-f0-9]{12})/file/(dense/(?:fused|mesh)\.ply)', path)
+        m = re.fullmatch(r'/api/job/([a-f0-9]{12})/file/(dense/(?:fused|object|mesh)\.ply)', path)
         if m:
             d = job_dir(m.group(1))
             return self._file(os.path.join(d, m.group(2)), 'application/octet-stream')

@@ -32,6 +32,8 @@ CACHE_GB="${CACHE_GB:-4}"
 # Цөөн/шуугиантай цэгэнд бүх зүйлийг таслаад хоосон тор үлдээдэг.
 POISSON_DEPTH="${POISSON_DEPTH:-10}"
 POISSON_TRIM="${POISSON_TRIM:-6}"
+# Дэвсгэр (ширээ/хана) таслах. CLEAN=0 бол алгасна.
+CLEAN="${CLEAN:-1}"
 
 log(){ echo "[$(date +%H:%M:%S)] $*"; }
 stage(){ echo "@@STAGE $1"; log "── $2"; }
@@ -181,9 +183,23 @@ NPTS=$(head -c 4000 "$JOB/dense/fused.ply" | grep -aoE 'element vertex [0-9]+' |
 log "Нягт цэгэн үүл: ${NPTS} цэг"
 [ "${NPTS:-0}" -ge 3000 ] || log "АНХААР: цэг цөөн байна — гадаргуу муу гарах магадлалтай."
 
-stage 7 "Гадаргуу барьж байна (Poisson · depth=$POISSON_DEPTH trim=$POISSON_TRIM)"
+MESH_SRC=fused.ply
+if [ "$CLEAN" = 1 ]; then
+  stage 7 "Дэвсгэрийг таслаж байна (хавтгай + холбоост бүлэг)"
+  if python3 "$(dirname "${BASH_SOURCE[0]}")/clean.py" \
+       "$JOB/dense/fused.ply" "$JOB/dense/object.ply"; then
+    MESH_SRC=object.ply
+  else
+    log "Цэвэрлэлт бүтсэнгүй — бүтэн цэгэн үүлээр үргэлжилнэ"
+  fi
+else
+  stage 7 "Дэвсгэр таслах алхам алгасав (CLEAN=0)"
+fi
+log "Гадаргууг $MESH_SRC дээр барина"
+
+stage 8 "Гадаргуу барьж байна (Poisson · depth=$POISSON_DEPTH trim=$POISSON_TRIM)"
 dcolmap poisson_mesher \
-  --input_path /work/dense/fused.ply --output_path /work/dense/mesh.ply \
+  --input_path "/work/dense/$MESH_SRC" --output_path /work/dense/mesh.ply \
   --PoissonMeshing.depth "$POISSON_DEPTH" \
   --PoissonMeshing.trim "$POISSON_TRIM" || true
 
@@ -196,6 +212,6 @@ fi
 log "Торны орой: ${MV:-0}"
 [ "${MV:-0}" -ge 1000 ] || log "АНХААР: тор бүтсэнгүй. Цэгэн үүл (fused.ply) нь ашиглах боломжтой хэвээр."
 
-stage 8 "Дууслаа"
-ls -lh "$JOB/dense/fused.ply" "$JOB/dense/mesh.ply" 2>/dev/null || true
+stage 9 "Дууслаа"
+ls -lh "$JOB/dense/fused.ply" "$JOB/dense/object.ply" "$JOB/dense/mesh.ply" 2>/dev/null || true
 echo "@@DONE"
